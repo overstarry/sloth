@@ -1,0 +1,43 @@
+server:
+  addr: ":8080"
+
+# Target = the PostgreSQL instance being monitored (read-only access).
+# Grant: pg_read_all_stats + CREATE EXTENSION pg_stat_statements on the target.
+target:
+  dsn: "postgres://monitor:secret@target-host:5432/appdb?sslmode=require"
+  max_conns: 4
+
+# Store = sloth's own state database (snapshots, diagnoses, notify log).
+store:
+  dsn: "postgres://sloth:secret@localhost:5432/sloth?sslmode=disable"
+  max_conns: 8
+
+collector:
+  interval: 1m
+  top_n: 20
+  min_mean_exec_ms: 100   # ignore statements faster than 100ms mean
+
+llm:
+  provider: "mock"        # mock | claude | openai
+  model: "claude-opus-4-8"
+  # api_key: set via SLOTH_LLM_API_KEY env var instead of committing it
+  max_tokens: 2048
+  temperature: 0.0
+
+notify:
+  enabled: true
+  cooldown: 30m           # per-fingerprint quiet window
+  rules:
+    critical:
+      channels: [wecom-dba, feishu-dba]
+      mention: ["dba-oncall"]
+    warn:
+      channels: [feishu-dba]
+  channels:
+    - name: wecom-dba
+      type: wecom
+      webhook: "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=YOUR_KEY"
+    - name: feishu-dba
+      type: feishu       # use "lark" for larksuite.com hosts (same impl)
+      webhook: "https://open.feishu.cn/open-apis/bot/v2/hook/YOUR_HOOK"
+      sign_secret: "YOUR_SIGN_SECRET"   # optional
