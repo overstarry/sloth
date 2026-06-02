@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/overstarry/sloth/internal/config"
@@ -48,7 +47,6 @@ type Dispatcher struct {
 	limiters map[string]*tokenBucket
 	store    CooldownStore
 	log      *slog.Logger
-	mu       sync.Mutex
 }
 
 // NewDispatcher builds the channel registry from config.

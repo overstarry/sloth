@@ -74,10 +74,10 @@ func postJSON(ctx context.Context, url string, payload any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode/100 != 2 {
 		var b bytes.Buffer
-		b.ReadFrom(resp.Body)
+		_, _ = b.ReadFrom(resp.Body)
 		return fmt.Errorf("http %d: %s", resp.StatusCode, b.String())
 	}
 	var r struct {
@@ -88,7 +88,7 @@ func postJSON(ctx context.Context, url string, payload any) error {
 		FMsg  string `json:"msg"`
 	}
 	body := new(bytes.Buffer)
-	body.ReadFrom(resp.Body)
+	_, _ = body.ReadFrom(resp.Body)
 	_ = json.Unmarshal(body.Bytes(), &r)
 	if r.Code != 0 {
 		return fmt.Errorf("api errcode %d: %s", r.Code, r.Msg)
