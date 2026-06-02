@@ -16,7 +16,7 @@ type Querier interface {
 	InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) error
 	LastNotifiedAt(ctx context.Context, fingerprint string) (time.Time, error)
 	ListSnapshotsByFingerprint(ctx context.Context, arg ListSnapshotsByFingerprintParams) ([]ListSnapshotsByFingerprintRow, error)
-	ListTopSlowSQL(ctx context.Context, limit int32) ([]ListTopSlowSQLRow, error)
+	ListTopSlowSQL(ctx context.Context, arg ListTopSlowSQLParams) ([]ListTopSlowSQLRow, error)
 	SaveDiagnosis(ctx context.Context, arg SaveDiagnosisParams) (int64, error)
 	UpsertFingerprint(ctx context.Context, arg UpsertFingerprintParams) error
 }

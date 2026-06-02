@@ -2,13 +2,17 @@
 -- It must stay in sync with internal/store/migrations/*.up.sql.
 
 -- One row per slow-SQL fingerprint observed (the dedup key).
+-- instance namespaces the fingerprint to its monitored target.
 CREATE TABLE sql_fingerprint (
     fingerprint  TEXT PRIMARY KEY,
+    instance     TEXT        NOT NULL DEFAULT '',
     query_text   TEXT        NOT NULL,
     database     TEXT        NOT NULL,
     first_seen   TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS idx_sql_fingerprint_instance ON sql_fingerprint (instance);
 
 -- Time series of per-window metrics for each fingerprint.
 CREATE TABLE slow_sql_snapshot (

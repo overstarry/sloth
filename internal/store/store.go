@@ -48,6 +48,7 @@ func (s *Store) Close() { s.pool.Close() }
 func (s *Store) SaveSnapshot(ctx context.Context, sql model.SlowSQL) error {
 	if err := s.q.UpsertFingerprint(ctx, gen.UpsertFingerprintParams{
 		Fingerprint: sql.Fingerprint,
+		Instance:    sql.Instance,
 		QueryText:   sql.QueryText,
 		Database:    sql.Database,
 	}); err != nil {
@@ -63,9 +64,11 @@ func (s *Store) SaveSnapshot(ctx context.Context, sql model.SlowSQL) error {
 	})
 }
 
-// TopSlowSQL returns the slowest statements from the most recent snapshot.
-func (s *Store) TopSlowSQL(ctx context.Context, limit int32) ([]model.SlowSQL, error) {
-	rows, err := s.q.ListTopSlowSQL(ctx, limit)
+// TopSlowSQL returns the slowest statements from each fingerprint's most recent
+// snapshot. An empty instance returns every monitored target; a non-empty
+// instance restricts the result to that target.
+func (s *Store) TopSlowSQL(ctx context.Context, limit int32, instance string) ([]model.SlowSQL, error) {
+	rows, err := s.q.ListTopSlowSQL(ctx, gen.ListTopSlowSQLParams{Limit: limit, Instance: instance})
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +76,7 @@ func (s *Store) TopSlowSQL(ctx context.Context, limit int32) ([]model.SlowSQL, e
 	for _, r := range rows {
 		out = append(out, model.SlowSQL{
 			Fingerprint: r.Fingerprint,
+			Instance:    r.Instance,
 			QueryText:   r.QueryText,
 			Database:    r.Database,
 			Calls:       r.Calls,
@@ -97,6 +101,7 @@ func (s *Store) SlowSQLByFingerprint(ctx context.Context, fingerprint string) (*
 	}
 	sql := &model.SlowSQL{
 		Fingerprint: fp.Fingerprint,
+		Instance:    fp.Instance,
 		QueryText:   fp.QueryText,
 		Database:    fp.Database,
 	}

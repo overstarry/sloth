@@ -12,7 +12,7 @@ import (
 )
 
 const getFingerprint = `-- name: GetFingerprint :one
-SELECT fingerprint, query_text, database, first_seen, last_seen
+SELECT fingerprint, instance, query_text, database, first_seen, last_seen
 FROM sql_fingerprint
 WHERE fingerprint = $1
 `
@@ -22,6 +22,7 @@ func (q *Queries) GetFingerprint(ctx context.Context, fingerprint string) (SqlFi
 	var i SqlFingerprint
 	err := row.Scan(
 		&i.Fingerprint,
+		&i.Instance,
 		&i.QueryText,
 		&i.Database,
 		&i.FirstSeen,
@@ -167,17 +168,27 @@ func (q *Queries) ListSnapshotsByFingerprint(ctx context.Context, arg ListSnapsh
 }
 
 const listTopSlowSQL = `-- name: ListTopSlowSQL :many
-SELECT f.fingerprint, f.query_text, f.database, s.calls, s.mean_exec_ms,
+SELECT f.fingerprint, f.instance, f.query_text, f.database, s.calls, s.mean_exec_ms,
        s.total_exec_ms, s.rows_per_call, s.captured_at
 FROM slow_sql_snapshot s
 JOIN sql_fingerprint f ON f.fingerprint = s.fingerprint
-WHERE s.captured_at = (SELECT max(captured_at) FROM slow_sql_snapshot)
+WHERE s.captured_at = (
+        SELECT max(s2.captured_at) FROM slow_sql_snapshot s2
+        WHERE s2.fingerprint = s.fingerprint
+      )
+  AND ($2::text = '' OR f.instance = $2::text)
 ORDER BY s.mean_exec_ms DESC
 LIMIT $1
 `
 
+type ListTopSlowSQLParams struct {
+	Limit    int32  `json:"limit"`
+	Instance string `json:"instance"`
+}
+
 type ListTopSlowSQLRow struct {
 	Fingerprint string    `json:"fingerprint"`
+	Instance    string    `json:"instance"`
 	QueryText   string    `json:"query_text"`
 	Database    string    `json:"database"`
 	Calls       int64     `json:"calls"`
@@ -187,8 +198,8 @@ type ListTopSlowSQLRow struct {
 	CapturedAt  time.Time `json:"captured_at"`
 }
 
-func (q *Queries) ListTopSlowSQL(ctx context.Context, limit int32) ([]ListTopSlowSQLRow, error) {
-	rows, err := q.db.Query(ctx, listTopSlowSQL, limit)
+func (q *Queries) ListTopSlowSQL(ctx context.Context, arg ListTopSlowSQLParams) ([]ListTopSlowSQLRow, error) {
+	rows, err := q.db.Query(ctx, listTopSlowSQL, arg.Limit, arg.Instance)
 	if err != nil {
 		return nil, err
 	}
@@ -198,6 +209,7 @@ func (q *Queries) ListTopSlowSQL(ctx context.Context, limit int32) ([]ListTopSlo
 		var i ListTopSlowSQLRow
 		if err := rows.Scan(
 			&i.Fingerprint,
+			&i.Instance,
 			&i.QueryText,
 			&i.Database,
 			&i.Calls,
@@ -244,8 +256,8 @@ func (q *Queries) SaveDiagnosis(ctx context.Context, arg SaveDiagnosisParams) (i
 }
 
 const upsertFingerprint = `-- name: UpsertFingerprint :exec
-INSERT INTO sql_fingerprint (fingerprint, query_text, database, first_seen, last_seen)
-VALUES ($1, $2, $3, now(), now())
+INSERT INTO sql_fingerprint (fingerprint, instance, query_text, database, first_seen, last_seen)
+VALUES ($1, $2, $3, $4, now(), now())
 ON CONFLICT (fingerprint) DO UPDATE
     SET last_seen = now(),
         query_text = EXCLUDED.query_text
@@ -253,11 +265,12 @@ ON CONFLICT (fingerprint) DO UPDATE
 
 type UpsertFingerprintParams struct {
 	Fingerprint string `json:"fingerprint"`
+	Instance    string `json:"instance"`
 	QueryText   string `json:"query_text"`
 	Database    string `json:"database"`
 }
 
 func (q *Queries) UpsertFingerprint(ctx context.Context, arg UpsertFingerprintParams) error {
-	_, err := q.db.Exec(ctx, upsertFingerprint, arg.Fingerprint, arg.QueryText, arg.Database)
+	_, err := q.db.Exec(ctx, upsertFingerprint, arg.Fingerprint, arg.Instance, arg.QueryText, arg.Database)
 	return err
 }

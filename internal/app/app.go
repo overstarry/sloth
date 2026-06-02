@@ -17,22 +17,24 @@ import (
 
 // App is the central orchestrator implementing api.Service.
 type App struct {
-	store     *store.Store
-	inspector *inspect.Inspector
-	analyzer  *analyzer.Analyzer
-	notifier  *notify.Dispatcher
-	log       *slog.Logger
-	dashboard string // base URL for building detail links
+	store      *store.Store
+	inspectors map[string]*inspect.Inspector // keyed by target instance name
+	analyzer   *analyzer.Analyzer
+	notifier   *notify.Dispatcher
+	log        *slog.Logger
+	dashboard  string // base URL for building detail links
 }
 
-// New constructs the orchestrator.
-func New(st *store.Store, ins *inspect.Inspector, an *analyzer.Analyzer, nt *notify.Dispatcher, dashboardURL string, log *slog.Logger) *App {
-	return &App{store: st, inspector: ins, analyzer: an, notifier: nt, dashboard: dashboardURL, log: log}
+// New constructs the orchestrator. inspectors maps each monitored target's
+// instance name to an Inspector over that target's pool, so diagnosis runs
+// EXPLAIN against the instance the slow SQL actually came from.
+func New(st *store.Store, inspectors map[string]*inspect.Inspector, an *analyzer.Analyzer, nt *notify.Dispatcher, dashboardURL string, log *slog.Logger) *App {
+	return &App{store: st, inspectors: inspectors, analyzer: an, notifier: nt, dashboard: dashboardURL, log: log}
 }
 
-// TopSlowSQL proxies to the store.
-func (a *App) TopSlowSQL(ctx context.Context, limit int32) ([]model.SlowSQL, error) {
-	return a.store.TopSlowSQL(ctx, limit)
+// TopSlowSQL proxies to the store, optionally filtered by instance.
+func (a *App) TopSlowSQL(ctx context.Context, limit int32, instance string) ([]model.SlowSQL, error) {
+	return a.store.TopSlowSQL(ctx, limit, instance)
 }
 
 // LatestDiagnosis proxies to the store.
@@ -52,8 +54,11 @@ func (a *App) DiagnoseNow(ctx context.Context, fingerprint string) (*model.Diagn
 	}
 
 	ev := model.Evidence{SQL: *sql}
-	// Best-effort enrichment: a failed EXPLAIN must not block diagnosis.
-	if plan, err := a.inspector.ExplainJSON(ctx, sql.QueryText); err != nil {
+	// Route introspection to the instance this SQL came from; without a match
+	// we still diagnose, just without an EXPLAIN plan.
+	if ins := a.inspectors[sql.Instance]; ins == nil {
+		a.log.Warn("no inspector for instance; explain skipped", "instance", sql.Instance, "fingerprint", fingerprint)
+	} else if plan, err := ins.ExplainJSON(ctx, sql.QueryText); err != nil {
 		a.log.Debug("explain skipped", "fingerprint", fingerprint, "err", err)
 	} else {
 		ev.ExplainJSON = plan
@@ -80,7 +85,7 @@ func (a *App) dispatch(ctx context.Context, sql model.SlowSQL, d model.Diagnosis
 	msg := notify.Message{
 		Title:   "慢 SQL 诊断告警",
 		Level:   d.RiskLevel,
-		Summary: fmt.Sprintf("`%s` 均耗时 %.1fms / %d 次调用 (db=%s)", short(sql.Fingerprint), sql.MeanExecMs, sql.Calls, sql.Database),
+		Summary: fmt.Sprintf("`%s` 均耗时 %.1fms / %d 次调用 (instance=%s, db=%s)", short(sql.Fingerprint), sql.MeanExecMs, sql.Calls, sql.Instance, sql.Database),
 		Detail:  formatDetail(d),
 		Link:    fmt.Sprintf("%s/slow-sql/%s", a.dashboard, sql.Fingerprint),
 	}
