@@ -14,8 +14,10 @@ import (
 type Config struct {
 	// Server holds the HTTP API server settings.
 	Server ServerConfig `yaml:"server"`
-	// Target is the PostgreSQL instance being monitored (read-only).
-	Target DBConfig `yaml:"target"`
+	// Targets are the PostgreSQL instances being monitored (read-only). Each
+	// must have a unique name used to namespace fingerprints and route
+	// introspection back to the originating instance.
+	Targets []TargetConfig `yaml:"targets"`
 	// Store is the database sloth uses to persist its own state.
 	Store DBConfig `yaml:"store"`
 	// Collector controls how slow SQL is sampled from the target.
@@ -36,6 +38,14 @@ type DBConfig struct {
 	DSN              string        `yaml:"dsn"`
 	MaxConns         int32         `yaml:"max_conns"`
 	StatementTimeout time.Duration `yaml:"statement_timeout"`
+}
+
+// TargetConfig is one monitored PostgreSQL instance. Name is a stable,
+// human-readable identifier (e.g. "prod-orders") that namespaces the instance's
+// fingerprints and routes diagnosis introspection back to it.
+type TargetConfig struct {
+	Name     string `yaml:"name"`
+	DBConfig `yaml:",inline"`
 }
 
 // CollectorConfig controls slow SQL sampling.
@@ -128,8 +138,10 @@ func (c *Config) applyDefaults() {
 }
 
 func (c *Config) applyEnv() {
-	if v := os.Getenv("SLOTH_TARGET_DSN"); v != "" {
-		c.Target.DSN = v
+	// SLOTH_TARGET_DSN overrides the first target's DSN, preserving the
+	// single-target convenience for local runs and secret injection.
+	if v := os.Getenv("SLOTH_TARGET_DSN"); v != "" && len(c.Targets) > 0 {
+		c.Targets[0].DSN = v
 	}
 	if v := os.Getenv("SLOTH_STORE_DSN"); v != "" {
 		c.Store.DSN = v
@@ -140,8 +152,21 @@ func (c *Config) applyEnv() {
 }
 
 func (c *Config) validate() error {
-	if c.Target.DSN == "" {
-		return fmt.Errorf("target.dsn is required")
+	if len(c.Targets) == 0 {
+		return fmt.Errorf("at least one targets[] entry is required")
+	}
+	seen := make(map[string]bool, len(c.Targets))
+	for i, t := range c.Targets {
+		if t.Name == "" {
+			return fmt.Errorf("targets[%d].name is required", i)
+		}
+		if t.DSN == "" {
+			return fmt.Errorf("targets[%d] (%q): dsn is required", i, t.Name)
+		}
+		if seen[t.Name] {
+			return fmt.Errorf("duplicate target name %q", t.Name)
+		}
+		seen[t.Name] = true
 	}
 	if c.Store.DSN == "" {
 		return fmt.Errorf("store.dsn is required")

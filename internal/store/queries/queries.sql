@@ -1,6 +1,6 @@
 -- name: UpsertFingerprint :exec
-INSERT INTO sql_fingerprint (fingerprint, query_text, database, first_seen, last_seen)
-VALUES ($1, $2, $3, now(), now())
+INSERT INTO sql_fingerprint (fingerprint, instance, query_text, database, first_seen, last_seen)
+VALUES ($1, $2, $3, $4, now(), now())
 ON CONFLICT (fingerprint) DO UPDATE
     SET last_seen = now(),
         query_text = EXCLUDED.query_text;
@@ -11,16 +11,23 @@ VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (fingerprint, captured_at) DO NOTHING;
 
 -- name: ListTopSlowSQL :many
-SELECT f.fingerprint, f.query_text, f.database, s.calls, s.mean_exec_ms,
+-- Latest snapshot per fingerprint (each target's collector ticks independently,
+-- so a single global max(captured_at) would hide all but one instance). An empty
+-- instance filter ($2 = '') returns every instance.
+SELECT f.fingerprint, f.instance, f.query_text, f.database, s.calls, s.mean_exec_ms,
        s.total_exec_ms, s.rows_per_call, s.captured_at
 FROM slow_sql_snapshot s
 JOIN sql_fingerprint f ON f.fingerprint = s.fingerprint
-WHERE s.captured_at = (SELECT max(captured_at) FROM slow_sql_snapshot)
+WHERE s.captured_at = (
+        SELECT max(s2.captured_at) FROM slow_sql_snapshot s2
+        WHERE s2.fingerprint = s.fingerprint
+      )
+  AND ($2::text = '' OR f.instance = $2::text)
 ORDER BY s.mean_exec_ms DESC
 LIMIT $1;
 
 -- name: GetFingerprint :one
-SELECT fingerprint, query_text, database, first_seen, last_seen
+SELECT fingerprint, instance, query_text, database, first_seen, last_seen
 FROM sql_fingerprint
 WHERE fingerprint = $1;
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -53,23 +54,28 @@ func run(cfgPath string, log *slog.Logger) error {
 	}
 	defer st.Close()
 
-	// Collector over the target instance.
-	coll, err := collector.New(ctx, cfg.Target, cfg.Collector, st, log)
-	if err != nil {
-		return err
-	}
-	defer coll.Close()
-	if err := coll.Preflight(ctx); err != nil {
-		return err
+	// One collector + inspector per monitored target instance.
+	collectors := make([]*collector.Collector, 0, len(cfg.Targets))
+	inspectors := make(map[string]*inspect.Inspector, len(cfg.Targets))
+	for _, t := range cfg.Targets {
+		coll, err := collector.New(ctx, t, cfg.Collector, st, log)
+		if err != nil {
+			return fmt.Errorf("target %q: %w", t.Name, err)
+		}
+		defer coll.Close()
+		if err := coll.Preflight(ctx); err != nil {
+			return fmt.Errorf("target %q preflight: %w", t.Name, err)
+		}
+		collectors = append(collectors, coll)
+		inspectors[t.Name] = inspect.New(coll.TargetPool())
 	}
 
-	// LLM + analyzer + introspection share the target pool.
+	// LLM + analyzer.
 	provider, err := llm.New(cfg.LLM)
 	if err != nil {
 		return err
 	}
 	an := analyzer.New(provider)
-	ins := inspect.New(coll.TargetPool())
 
 	// Notifier.
 	dispatcher, err := notify.NewDispatcher(cfg.Notify, st, log)
@@ -77,14 +83,17 @@ func run(cfgPath string, log *slog.Logger) error {
 		return err
 	}
 
-	application := app.New(st, ins, an, dispatcher, "http://localhost"+cfg.Server.Addr, log)
+	application := app.New(st, inspectors, an, dispatcher, "http://localhost"+cfg.Server.Addr, log)
 
-	// Background collection loop.
-	go func() {
-		if err := coll.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-			log.Error("collector stopped", "err", err)
-		}
-	}()
+	// Background collection loop, one goroutine per target.
+	for _, coll := range collectors {
+		coll := coll
+		go func() {
+			if err := coll.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.Error("collector stopped", "instance", coll.Instance(), "err", err)
+			}
+		}()
+	}
 
 	// HTTP server.
 	srv := &http.Server{

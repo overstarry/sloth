@@ -17,7 +17,8 @@ const (
 
 // SlowSQL is one normalized slow statement captured from the target.
 type SlowSQL struct {
-	Fingerprint string    // stable hash of the normalized query
+	Fingerprint string    // stable hash of (instance, database, normalized query)
+	Instance    string    // monitored target instance name (config targets[].name)
 	QueryID     int64     // pg_stat_statements queryid
 	QueryText   string    // normalized query text ($1, $2, ...)
 	Calls       int64     // call delta in the snapshot window

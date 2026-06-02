@@ -24,10 +24,11 @@ type Sink interface {
 
 // Collector samples the target and writes to a Sink.
 type Collector struct {
-	pool *pgxpool.Pool
-	cfg  config.CollectorConfig
-	sink Sink
-	log  *slog.Logger
+	pool     *pgxpool.Pool
+	instance string
+	cfg      config.CollectorConfig
+	sink     Sink
+	log      *slog.Logger
 
 	// prev holds the previous cumulative counters per queryid for delta math.
 	prev map[int64]counters
@@ -39,7 +40,9 @@ type counters struct {
 }
 
 // New connects to the target instance (read-only usage) and returns a Collector.
-func New(ctx context.Context, target config.DBConfig, cfg config.CollectorConfig, sink Sink, log *slog.Logger) (*Collector, error) {
+// The target's Name namespaces every fingerprint this collector produces so
+// identical SQL on different instances never collides.
+func New(ctx context.Context, target config.TargetConfig, cfg config.CollectorConfig, sink Sink, log *slog.Logger) (*Collector, error) {
 	pcfg, err := pgxpool.ParseConfig(target.DSN)
 	if err != nil {
 		return nil, err
@@ -51,8 +54,11 @@ func New(ctx context.Context, target config.DBConfig, cfg config.CollectorConfig
 	if err != nil {
 		return nil, err
 	}
-	return &Collector{pool: pool, cfg: cfg, sink: sink, log: log, prev: map[int64]counters{}}, nil
+	return &Collector{pool: pool, instance: target.Name, cfg: cfg, sink: sink, log: log, prev: map[int64]counters{}}, nil
 }
+
+// Instance returns the configured name of the monitored target.
+func (c *Collector) Instance() string { return c.instance }
 
 // Close releases the target pool.
 func (c *Collector) Close() { c.pool.Close() }
@@ -144,7 +150,8 @@ func (c *Collector) sample(ctx context.Context, persist bool) (int, error) {
 			continue
 		}
 		candidates = append(candidates, model.SlowSQL{
-			Fingerprint: Fingerprint(datname, query),
+			Fingerprint: Fingerprint(c.instance, datname, query),
+			Instance:    c.instance,
 			QueryID:     queryid,
 			QueryText:   query,
 			Calls:       dCalls,
@@ -174,9 +181,10 @@ func (c *Collector) sample(ctx context.Context, persist bool) (int, error) {
 }
 
 // Fingerprint derives a stable dedup key. pg_stat_statements already normalizes
-// literals to $N, so hashing (database, normalized query) is sufficient.
-func Fingerprint(database, normalizedQuery string) string {
-	h := sha256.Sum256([]byte(database + "::" + normalizedQuery))
+// literals to $N, so hashing (instance, database, normalized query) is
+// sufficient — instance keeps identical SQL on different targets distinct.
+func Fingerprint(instance, database, normalizedQuery string) string {
+	h := sha256.Sum256([]byte(instance + "::" + database + "::" + normalizedQuery))
 	return hex.EncodeToString(h[:16])
 }
 

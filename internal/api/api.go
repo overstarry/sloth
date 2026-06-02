@@ -13,7 +13,7 @@ import (
 
 // Service is the application surface the API depends on.
 type Service interface {
-	TopSlowSQL(ctx context.Context, limit int32) ([]model.SlowSQL, error)
+	TopSlowSQL(ctx context.Context, limit int32, instance string) ([]model.SlowSQL, error)
 	LatestDiagnosis(ctx context.Context, fingerprint string) (*model.Diagnosis, error)
 	// DiagnoseNow runs the full gather+LLM pipeline for one fingerprint.
 	DiagnoseNow(ctx context.Context, fingerprint string) (*model.Diagnosis, error)
@@ -48,7 +48,9 @@ func (s *Server) Handler() http.Handler { return s.engine }
 
 func (s *Server) listSlowSQL(c *gin.Context) {
 	limit := int32(20)
-	rows, err := s.svc.TopSlowSQL(c.Request.Context(), limit)
+	// Optional ?instance=<name> filter; empty returns every monitored target.
+	instance := c.Query("instance")
+	rows, err := s.svc.TopSlowSQL(c.Request.Context(), limit, instance)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

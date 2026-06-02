@@ -1,11 +1,17 @@
 server:
   addr: ":8080"
 
-# Target = the PostgreSQL instance being monitored (read-only access).
-# Grant: pg_read_all_stats + CREATE EXTENSION pg_stat_statements on the target.
-target:
-  dsn: "postgres://monitor:secret@target-host:5432/appdb?sslmode=require"
-  max_conns: 4
+# Targets = the PostgreSQL instances being monitored (read-only access).
+# Each needs a unique `name` (namespaces fingerprints + routes EXPLAIN back to
+# the right instance). Grant pg_read_all_stats + CREATE EXTENSION
+# pg_stat_statements on every target.
+targets:
+  - name: prod-orders
+    dsn: "postgres://monitor:secret@orders-host:5432/appdb?sslmode=require"
+    max_conns: 4
+  - name: prod-billing
+    dsn: "postgres://monitor:secret@billing-host:5432/appdb?sslmode=require"
+    max_conns: 4
 
 # Store = sloth's own state database (snapshots, diagnoses, notify log).
 store:

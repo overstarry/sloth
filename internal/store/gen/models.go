@@ -41,6 +41,7 @@ type SlowSqlSnapshot struct {
 
 type SqlFingerprint struct {
 	Fingerprint string    `json:"fingerprint"`
+	Instance    string    `json:"instance"`
 	QueryText   string    `json:"query_text"`
 	Database    string    `json:"database"`
 	FirstSeen   time.Time `json:"first_seen"`
