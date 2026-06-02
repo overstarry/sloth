@@ -14,8 +14,11 @@ func TestTokenBucket_RefillsPerInterval(t *testing.T) {
 	defer func() { nowFunc = time.Now }()
 
 	b := newTokenBucket(2, time.Minute)
-	if !b.tryTake() || !b.tryTake() {
-		t.Fatal("first two takes should succeed")
+	if !b.tryTake() {
+		t.Fatal("first take should succeed")
+	}
+	if !b.tryTake() {
+		t.Fatal("second take should succeed")
 	}
 	if b.tryTake() {
 		t.Fatal("third take should fail before refill")

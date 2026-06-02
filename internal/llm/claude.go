@@ -102,10 +102,10 @@ func (p *claudeProvider) call(ctx context.Context, body map[string]any) (*claude
 	if err != nil {
 		return nil, fmt.Errorf("claude request: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 	if httpResp.StatusCode != http.StatusOK {
 		var b bytes.Buffer
-		b.ReadFrom(httpResp.Body)
+		_, _ = b.ReadFrom(httpResp.Body)
 		return nil, fmt.Errorf("claude http %d: %s", httpResp.StatusCode, b.String())
 	}
 	var out claudeResponse
