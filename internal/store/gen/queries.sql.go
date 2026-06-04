@@ -198,6 +198,9 @@ type ListTopSlowSQLRow struct {
 	CapturedAt  time.Time `json:"captured_at"`
 }
 
+// Latest snapshot per fingerprint (each target's collector ticks independently,
+// so a single global max(captured_at) would hide all but one instance). An empty
+// instance filter (empty string) returns every instance.
 func (q *Queries) ListTopSlowSQL(ctx context.Context, arg ListTopSlowSQLParams) ([]ListTopSlowSQLRow, error) {
 	rows, err := q.db.Query(ctx, listTopSlowSQL, arg.Limit, arg.Instance)
 	if err != nil {
@@ -271,6 +274,11 @@ type UpsertFingerprintParams struct {
 }
 
 func (q *Queries) UpsertFingerprint(ctx context.Context, arg UpsertFingerprintParams) error {
-	_, err := q.db.Exec(ctx, upsertFingerprint, arg.Fingerprint, arg.Instance, arg.QueryText, arg.Database)
+	_, err := q.db.Exec(ctx, upsertFingerprint,
+		arg.Fingerprint,
+		arg.Instance,
+		arg.QueryText,
+		arg.Database,
+	)
 	return err
 }
