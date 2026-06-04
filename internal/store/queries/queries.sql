@@ -13,7 +13,7 @@ ON CONFLICT (fingerprint, captured_at) DO NOTHING;
 -- name: ListTopSlowSQL :many
 -- Latest snapshot per fingerprint (each target's collector ticks independently,
 -- so a single global max(captured_at) would hide all but one instance). An empty
--- instance filter ($2 = '') returns every instance.
+-- instance filter (empty string) returns every instance.
 SELECT f.fingerprint, f.instance, f.query_text, f.database, s.calls, s.mean_exec_ms,
        s.total_exec_ms, s.rows_per_call, s.captured_at
 FROM slow_sql_snapshot s
@@ -22,7 +22,7 @@ WHERE s.captured_at = (
         SELECT max(s2.captured_at) FROM slow_sql_snapshot s2
         WHERE s2.fingerprint = s.fingerprint
       )
-  AND ($2::text = '' OR f.instance = $2::text)
+  AND (sqlc.arg(instance)::text = '' OR f.instance = sqlc.arg(instance)::text)
 ORDER BY s.mean_exec_ms DESC
 LIMIT $1;
 
